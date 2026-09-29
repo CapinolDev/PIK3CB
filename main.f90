@@ -11,7 +11,7 @@ program engine
     integer                        :: currside
     integer                        :: en_passant_sq
 
-    character(len=128)             :: UCI_IN
+    character(len=4096)             :: UCI_IN
     integer                        :: idx_rank, idx_file, read_stat
 
     currside = SIDE_WHITE
@@ -29,9 +29,20 @@ program engine
         board(idx_file + 80) = PAWN_B  
     end do setup_pawns
 
-    do 
+    uci: do 
         read(*, '(A)', iostat=read_stat) UCI_IN
         if (read_stat /= 0) exit
+
+        if (UCI_IN(1:2) == 'go') then
+            call search_root(6, currside)
+            cycle
+        end if
+
+        if (UCI_IN(1:8) == 'position') then
+            call reset_board_to_start()
+            call parse_position_moves(trim(UCI_IN))
+            cycle
+        end if
 
         select case(trim(UCI_IN))
         case('quit')
@@ -40,23 +51,19 @@ program engine
             write(*, '(A)') 'uciok'
         case('isready')
             write(*, '(A)') 'readyok'
+        case('ucinewgame')
+            call reset_board_to_start()
         case('d')
             call print_ascii_board()
         case('eval')
             write(*, '(I6)') eval_board(board)
-        case('go')
-            call search_root(6, currside)
         case default
-            if (len_trim(UCI_IN) >= 4) then
+            if (len_trim(UCI_IN) == 4) then
                 call do_move(trim(UCI_IN))
-                if (currside == SIDE_WHITE) then
-                    currside = SIDE_BLACK
-                else 
-                    currside = SIDE_WHITE
-                end if
+                currside = 3 - currside 
             end if
         end select
-    end do
+    end do uci
 
 contains
 
@@ -430,5 +437,46 @@ contains
             winner = SIDE_BLACK
         end if
     end function check_win_condition
+
+    subroutine reset_board_to_start()
+        implicit none
+        integer :: f, r
+        currside = SIDE_WHITE
+        en_passant_sq = 0
+        board = OFF_BOARD
+        
+        do f = 1, 8
+            do r = 2, 9
+                board(f + r * 10) = EMPTY
+            end do
+            board(f + 30) = PAWN_W  
+            board(f + 80) = PAWN_B  
+        end do
+    end subroutine reset_board_to_start
+
+    subroutine parse_position_moves(cmd)
+        implicit none
+        character(len=*), intent(in) :: cmd
+        integer :: moves_pos, i
+        character(len=4096) :: moves_str
+        character(len=4)   :: move_token
+
+        moves_pos = index(cmd, 'moves ')
+        if (moves_pos == 0) return 
+
+        moves_str = adjustl(cmd(moves_pos + 6:))
+        
+        do while (len_trim(moves_str) >= 4)
+            move_token = moves_str(1:4)
+            call do_move(move_token)
+            currside = 3 - currside
+            
+            if (len_trim(moves_str) > 5) then
+                moves_str = adjustl(moves_str(6:))
+            else
+                exit
+            end if
+        end do
+    end subroutine parse_position_moves
 
 end program engine
